@@ -1,7 +1,10 @@
 const { Router } = require('express');
 const axios = require('axios');
 const {Dog,Temperament} = require('../db');
+const concat = require('../tools/concat.js');
 const { API_KEY } = process.env;
+const toLower = require('../tools/toLower')
+
 // Importar todos los routers;
 // Ejemplo: const authRouter = require('./auth.js');
 
@@ -11,35 +14,25 @@ const router = Router();
 // Configurar los routers
 // Ejemplo: router.use('/auth', authRouter);
 
-//Creacion de las razas------------------------------------------------------
+//Creacion de las razas-----------------------------------------------------
 
 router.post('/dog', async (req, res, next) => {
 
-    const {name,
-        heightMin,
-        heightMax,
-        weightMin,
-        weightMax,
-        life_span_min,
-        life_span_max,
-        image,
-        temperament}
-     = req.body;
-    let height = heightMin +'-'+ heightMax;
-    let weight = weightMin +'-'+ weightMax;
-    let life_span = life_span_min +'-'+ life_span_max;
-    let nameLower = name.toLowerCase()
-    let nameUpper = nameLower[0].toUpperCase() + nameLower.substring(1)
+    const {name, heightMin, heightMax, weightMin, weightMax, life_span_min, life_span_max, image, temperament} = req.body;
+
+    let height = concat(heightMin,heightMax) 
+    let weight = concat(weightMin,weightMax)
+    let life_span = concat(life_span_min,life_span_max)
+    let nameUpper = toLower(name)
 
     try {
 
-        let dogyDataBase = await Dog.findAll({where:{name:nameUpper}});
-        console.log(dogyDataBase)
-        if(dogyDataBase.length > 0){
-            return  res.status(400).json("La raza ya existe");
-        }else{
+        let dogyDataBase = await Dog.findOne({where:{name:nameUpper}});
+        if(dogyDataBase !== null){
+            return  res.status(400).json("The dog breed already exists");
+        }
+        else{
             const newDog = await Dog.create({     
-        
                 name:nameUpper,
                 height,
                 weight,
@@ -48,31 +41,21 @@ router.post('/dog', async (req, res, next) => {
             });
     
            let upperTemp = temperament.map(e => e[0].toUpperCase()+e.substring(1))
-    
+
             for(i=0; i < upperTemp.length; i++){
     
-                let temp =await  Temperament.findAll({
+                let temp = await Temperament.findAll({
                     where:{
                         temperament:upperTemp[i]
                     }
                 });
-    
-                if(temp.length === 0 ){
-        
-                    temp = await Temperament.create({
-                    
-                        temperament:upperTemp[i]
-                    })
-                }
         
                await newDog.addTemperament(temp);
             }
         
-            res.status(200).json("The new breed was successfully created");
+            res.status(200).json({data:"The new breed was successfully created"});
         }
         
-        
-
     } catch (error) {
         next(error)
     }
@@ -90,7 +73,7 @@ router.get('/home', async(req, res, next) => {
         
         let razas = [];
 
-        for(i=0; i<dogApi.length;i++){
+        for(i=0; i < dogApi.length; i++){
             let raza = {
                 id:dogApi[i].id,
                 name:dogApi[i].name,
@@ -146,7 +129,7 @@ router.get('/home', async(req, res, next) => {
     }
 });
 
-//RUTA DE LOS TEMPERAMETNOS----------------------------------------------------------------
+//RUTA DE LOS TEMPERAMENTO----------------------------------------------------------------
 
 router.get('/home/temperament', async (req,res,next) => {
 
@@ -164,6 +147,7 @@ try {
             let arr = {
                 temperament: dogs[i].temperament
             }
+            
             aux = arr.temperament.split(', ')
             temps.push(aux)
         }     
@@ -207,8 +191,7 @@ router.get('/home/:id',async (req,res,next) => {
         
         const {id} = req.params;
         let dogyApi = (await axios(`https://api.thedogapi.com/v1/breeds?api_key=${API_KEY}`)).data;
-        let dogyBD = await Dog.findAll({include:Temperament});
-        let dogFound = ''
+        let dogFound= {}
 
         if(id.length < 4){
             dogyApi.forEach(e => {
@@ -227,29 +210,37 @@ router.get('/home/:id',async (req,res,next) => {
                 }
             })
             res.status(200).json(dogFound)
-        }else{
+        }
 
-            dogyBD.forEach(e => {
+        if(id.length > 4){
 
-                if(e.id == id){
-                    dogFound = {
-                        id: e.id,
-                        name:e.name,
-                        height:e.height,
-                        weight:e.weight,
-                        life_span:e.life_span,
-                        image:e.image,
-                        temperament:e.Temperaments.map(e => e.temperament).join(', ')
-    
-                    }
-                }
-            })
-            res.status(200).json(dogFound)
-        }        
+            let dogBD = await Dog.findByPk(id);
+            let dogyBD = dogBD.dataValues;
+            let temps = await dogBD.getTemperaments();
+            let tempes = temps.map(e => e.dataValues.temperament);
+            dogyBD.temperament  = tempes.join(', ')
+         
+            res.status(200).json(dogyBD)
+        }
+   
 
 } catch (error) {
     next(error)
 }
+
+})
+
+router.delete('/home/delete/:id',async (req,res,next) => {
+
+    try {
+
+       const id = req.params.id
+       await Dog.destroy({where: {id : id}})
+
+       res.status(200).json({data:'Deleted Successfully'})
+    } catch (error) {
+        res.status(400).json(error)
+    }
 
 })
 
